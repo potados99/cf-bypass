@@ -132,6 +132,14 @@ class RequestMirror:
                     parsed_hostname = urlparse(target_url).netloc
                     cache_key = md5_hash(parsed_hostname + (proxy or ""))
                     self.bypasser.cookie_cache.invalidate(cache_key)
+
+                    session_key = f"{hostname}:{proxy or 'no-proxy'}"
+                    if session_key in self.session_cache:
+                        try:
+                            await self.session_cache[session_key].close()
+                        except Exception:
+                            pass
+                        del self.session_cache[session_key]
                 
                 cf_data = await self.bypasser.get_or_generate_cookies(target_url, proxy)
                 
@@ -190,12 +198,22 @@ class RequestMirror:
                 # Check if we got a 403 Forbidden response
                 if status_code == 403 and attempt < max_retries:
                     logging.warning(f"Got 403 Forbidden from {hostname}, invalidating cache and retrying...")
-                    
+
                     # Invalidate the cached cookies for this hostname
                     parsed_hostname = urlparse(target_url).netloc
                     cache_key = md5_hash(parsed_hostname + (proxy or ""))
                     self.bypasser.cookie_cache.invalidate(cache_key)
-                    
+
+                    # Invalidate the session cache for this hostname
+                    session_key = f"{hostname}:{proxy or 'no-proxy'}"
+                    if session_key in self.session_cache:
+                        try:
+                            await self.session_cache[session_key].close()
+                        except Exception:
+                            pass
+                        del self.session_cache[session_key]
+                        logging.info(f"Invalidated session cache for {session_key}")
+
                     # Wait a bit before retrying
                     await asyncio.sleep(.5)
                     continue
