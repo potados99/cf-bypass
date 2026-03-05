@@ -18,12 +18,13 @@ class RequestMirror:
         self.bypasser: CamoufoxBypasser = bypasser or CamoufoxBypasser()
         self.session_cache: Dict[str, AsyncSession] = {}  # Cache curl-cffi sessions per hostname
         
-    def extract_mirror_headers(self, headers: Dict[str, str]) -> Tuple[Optional[str], Optional[str], bool]:
-        """Extract x-hostname, x-proxy, and x-bypass-cache from headers."""
+    def extract_mirror_headers(self, headers: Dict[str, str]) -> Tuple[Optional[str], Optional[str], bool, str]:
+        """Extract x-hostname, x-proxy, x-bypass-cache, and x-redirect-mode from headers."""
         hostname: Optional[str] = None
         proxy: Optional[str] = None
         bypass_cache: bool = False
-        
+        redirect_mode: str = 'follow'
+
         # Look for headers (case-insensitive)
         for key, value in headers.items():
             key_lower = key.lower()
@@ -33,15 +34,18 @@ class RequestMirror:
                 proxy = value
             elif key_lower == 'x-bypass-cache':
                 bypass_cache = value.lower() in ('true', '1', 'yes', 'on')
-        
-        return hostname, proxy, bypass_cache
+            elif key_lower == 'x-redirect-mode':
+                if value.lower() in ('follow', 'passthrough'):
+                    redirect_mode = value.lower()
+
+        return hostname, proxy, bypass_cache, redirect_mode
     
     def strip_mirror_headers(self, headers: Dict[str, str]) -> Dict[str, str]:
         """Remove x-hostname, x-proxy, and x-bypass-cache headers from request."""
         cleaned_headers = {}
         for key, value in headers.items():
             key_lower = key.lower()
-            if key_lower not in ['x-hostname', 'x-proxy', 'x-bypass-cache']:
+            if key_lower not in ['x-hostname', 'x-proxy', 'x-bypass-cache', 'x-redirect-mode']:
                 cleaned_headers[key] = value
         return cleaned_headers
     
@@ -108,8 +112,8 @@ class RequestMirror:
     ) -> Tuple[int, Dict[str, str], bytes]:
         """Mirror the request to the target hostname with CF bypass."""
         
-        # Extract hostname, proxy, and bypass cache flag
-        hostname, proxy, bypass_cache = self.extract_mirror_headers(headers)
+        # Extract hostname, proxy, bypass cache flag, and redirect mode
+        hostname, proxy, bypass_cache, redirect_mode = self.extract_mirror_headers(headers)
         
         if not hostname:
             raise ValueError("x-hostname header is required")
@@ -175,7 +179,7 @@ class RequestMirror:
                     url=target_url,
                     headers=clean_headers,
                     data=body,
-                    allow_redirects=False  # Let the client handle redirects
+                    allow_redirects=(redirect_mode == 'follow')
                 )
                 
                 # Convert response headers to dict
